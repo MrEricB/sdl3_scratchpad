@@ -1,9 +1,13 @@
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
+#include <string.h>
 
 #define WIDTH 320
 #define HEIGHT 200
+
+#define MAX_PIXELS 1500
 
 uint32_t framebuffer[WIDTH * HEIGHT];
 
@@ -25,14 +29,60 @@ void clear(uint32_t color)
     }
 }
 
+void draw_pixel_count(SDL_Renderer *renderer, int pixel_count)
+{
+    char text[64];
+
+    snprintf(text, sizeof(text), "Pixels: %d", pixel_count);
+
+    // Debug font characters are 8 pixels wide
+    float text_width = strlen(text) * 8.0f;
+
+    int screen_width;
+    int screen_height;
+
+    if (!SDL_GetCurrentRenderOutputSize(renderer, &screen_width, &screen_height))
+        return;
+
+    // Position text 10 pixels from the right edge
+    float x = screen_width - text_width - 10;
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderDebugText(renderer, x, 10, text);
+}
+
+uint32_t random_color(void)
+{
+    uint8_t r = rand() % 156;  // 0–155
+    uint8_t g = rand() % 156;
+    uint8_t b = rand() % 156;
+
+    return (r << 16) | (g << 8) | b;
+}
+
+typedef struct
+{
+    float x;
+    float y;
+
+    float dx;
+    float dy;
+
+    uint32_t color;
+} ExplodingPixel;
+
+
 int main(void)
 {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;
-    SDL_Event event; // just a struct not a pointer like the ones above
+    SDL_Event event;
     
-    // const double target_frame = 1.0 / 60.0;  // --> .016 ms
+    ExplodingPixel pixels[MAX_PIXELS];
+    int pixel_count = 0;
+
+    srand((unsigned int)time(NULL));
 
     if(!SDL_Init(SDL_INIT_VIDEO))
     {
@@ -46,14 +96,14 @@ int main(void)
         SDL_Quit();
         return EXIT_FAILURE;
     }
-    // research sdl_createrender(--, NAME), what can i put for name? What is it for?
+    
     renderer = SDL_CreateRenderer(window, NULL);
     if(renderer == NULL){
         fprintf(stderr, "SDL_CreateRenderer faild: %s\n", SDL_GetError());
         SDL_Quit();
         return EXIT_FAILURE;
     }
-    // research sdl_createtexture() more.
+    
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
     if(texture == NULL){
         fprintf(stderr, "SDL_CreateTexture faild: %s\n", SDL_GetError());
@@ -65,12 +115,14 @@ int main(void)
     uint8_t is_running = 1;
     uint32_t frame = 0;
 
+    float pixel_x = -1.0f;
+    float pixel_y = -1.0f;
+
     const Uint64 FRAME_TIME = 1000000000ULL / 60;
     Uint64 next_frame = SDL_GetTicksNS();
 
     while (is_running)
     {
-        // uint64_t start = SDL_GetPerformanceCounter();
         next_frame += FRAME_TIME;
         // poll events
         while (SDL_PollEvent(&event))
@@ -79,34 +131,96 @@ int main(void)
             {
                 is_running = 0;
             }
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+            {
+
+                int pixel_amount = (rand() % 46) + 5;
+
+                pixel_x = (int)event.button.x / 4;
+                pixel_y = (int)event.button.y / 4;
+                
+                for(int i = 0; i < pixel_amount; i++)
+                {
+                    if (pixel_count < MAX_PIXELS)
+                    {
+                        pixels[pixel_count].x = pixel_x;
+                        pixels[pixel_count].y = pixel_y;
+                        pixels[pixel_count].color = random_color();
+    
+                        int x_direction = (rand() % 2 == 0) ? -1 : 1;
+                        int y_direction = (rand() % 2 == 0) ? -1 : 1;
+    
+    
+                        pixels[pixel_count].dx = ((rand() % 19 + 2) * 0.05) * x_direction;
+                        pixels[pixel_count].dy = ((rand() % 19 + 2) * 0.05) * y_direction;
+    
+                        pixel_count++;
+                    }
+                }
+            }
 
         }
 
-        clear(0xFFFFFF);
-        // here we can manipulate our frambuffer arary as we wish
-        int x = frame % WIDTH;
-        int y = HEIGHT/2;
-        put_pixel(x, y, 0x000055);
+        for (int i = 0; i < pixel_count; i++)
+        {
+            if (pixels[i].x > WIDTH)
+            {
+                // wrap around
+                pixels[i].x = 0;
+            }
+            else if (pixels[i].x < 0)
+            {
+                pixels[i].x = WIDTH;
+            }
+            else
+            {
+                pixels[i].x += pixels[i].dx;
+            }
 
+            if (pixels[i].y > HEIGHT)
+            {
+                // wrap around
+                pixels[i].y = 0;
+            }
+            else if (pixels[i].y < 0)
+            {
+                pixels[i].y = HEIGHT;
+            }
+            else
+            {
+                pixels[i].y += pixels[i].dy;
+            }
+        }
+
+        clear(0xFFFFFF); // set background
+
+
+        // here can manipulate our frambuffer array
+        //put pixel at mouse click location
+        for (int i = 0; i < pixel_count; i++)
+        {
+            put_pixel(
+                pixels[i].x,
+                pixels[i].y,
+                pixels[i].color
+            );
+        }
 
         // copy the contents of the frambuffer to the texture.
         SDL_UpdateTexture(texture, NULL, framebuffer, WIDTH * sizeof(uint32_t)); // pitch --> width of the image/texture in bytes.
 
-        // display the window and the renderer
+        // clear the renderer current target
         SDL_RenderClear(renderer);
+
+        // render the frambuffer
         SDL_RenderTexture(renderer, texture, NULL, NULL);
+
+        // render pixel count on top
+        draw_pixel_count(renderer, pixel_count);
+
+        //display frame
         SDL_RenderPresent(renderer);
 
-        // uint64_t end = SDL_GetPerformanceCounter();
-        // double elapsed = (double)(end - start) / (double) SDL_GetPerformanceFrequency();
-
-        //cap fps
-        // if (elapsed < target_frame)
-        // {
-        //     SDL_Delay((target_frame - elapsed) * 1000); // sleep until reach target for 60 fps
-        // }
-
-        // frame++;
 
         frame++;
         Uint64 now = SDL_GetTicksNS();
