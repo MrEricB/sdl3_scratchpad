@@ -3,9 +3,11 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <math.h>
+#include <stdbool.h>
 
-#define WIDTH 320
-#define HEIGHT 200
+#define WIDTH 640
+#define HEIGHT 400
 
 #define MAX_PIXELS 1500
 
@@ -62,14 +64,14 @@ uint32_t random_color(void)
 
 typedef struct
 {
-    float x;
-    float y;
+    int center_x;
+    int center_y;
+    float growth_speed;
+    float base_growth_speed;
+    float current_radius;
+    bool is_growing;
 
-    float dx;
-    float dy;
-
-    uint32_t color;
-} ExplodingPixel;
+} Circle;
 
 
 int main(void)
@@ -79,7 +81,6 @@ int main(void)
     SDL_Texture *texture;
     SDL_Event event;
     
-    ExplodingPixel pixels[MAX_PIXELS];
     int pixel_count = 0;
 
     srand((unsigned int)time(NULL));
@@ -90,7 +91,8 @@ int main(void)
         return EXIT_FAILURE;
     }
     
-    window = SDL_CreateWindow("Pixel Manipulation Framebuffer", WIDTH * 4, HEIGHT * 4, 0);
+    window = SDL_CreateWindow("Pixel Manipulation Framebuffer", WIDTH, HEIGHT, 0);
+    // window = SDL_CreateWindow("Pixel Manipulation Framebuffer", WIDTH * 4, HEIGHT *v4, 0);
     if(window == NULL){
         fprintf(stderr, "SDL_CreateWindow faild: %s\n", SDL_GetError());
         SDL_Quit();
@@ -115,111 +117,110 @@ int main(void)
     uint8_t is_running = 1;
     uint32_t frame = 0;
 
-    float pixel_x = -1.0f;
-    float pixel_y = -1.0f;
-
     const Uint64 FRAME_TIME = 1000000000ULL / 60;
     Uint64 next_frame = SDL_GetTicksNS();
+
+
+    Circle circle;
+    circle.growth_speed = 0.0f;
+    circle.current_radius = 0;
+    circle.is_growing = true;
+   
+    float x_boarder;
+    float y_boarder;
 
     while (is_running)
     {
         next_frame += FRAME_TIME;
-        // poll events
+        
         while (SDL_PollEvent(&event))
         {
             if (event.type == SDL_EVENT_QUIT)
             {
                 is_running = 0;
             }
-            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT)
             {
+                circle.center_x = (int) event.button.x; // 4;
+                circle.center_y = (int) event.button.y; // 4;
 
-                int pixel_amount = (rand() % 46) + 5;
+                circle.current_radius = 0;
+                circle.growth_speed = 1.5f;
+                circle.base_growth_speed = circle.growth_speed;
+            }
 
-                pixel_x = (int)event.button.x / 4;
-                pixel_y = (int)event.button.y / 4;
-                
-                for(int i = 0; i < pixel_amount; i++)
-                {
-                    if (pixel_count < MAX_PIXELS)
-                    {
-                        pixels[pixel_count].x = pixel_x;
-                        pixels[pixel_count].y = pixel_y;
-                        pixels[pixel_count].color = random_color();
-    
-                        int x_direction = (rand() % 2 == 0) ? -1 : 1;
-                        int y_direction = (rand() % 2 == 0) ? -1 : 1;
-    
-    
-                        pixels[pixel_count].dx = ((rand() % 19 + 2) * 0.05) * x_direction;
-                        pixels[pixel_count].dy = ((rand() % 19 + 2) * 0.05) * y_direction;
-    
-                        pixel_count++;
-                    }
-                }
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_RIGHT)
+            {
+                circle.growth_speed *= -1.0f;
+            }
+
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE)
+            {
+                circle.is_growing = !circle.is_growing;
             }
 
         }
 
-        for (int i = 0; i < pixel_count; i++)
+        // get new radious
+        if (circle.is_growing)
         {
-            if (pixels[i].x > WIDTH)
-            {
-                // wrap around
-                pixels[i].x = 0;
-            }
-            else if (pixels[i].x < 0)
-            {
-                pixels[i].x = WIDTH;
-            }
-            else
-            {
-                pixels[i].x += pixels[i].dx;
-            }
-
-            if (pixels[i].y > HEIGHT)
-            {
-                // wrap around
-                pixels[i].y = 0;
-            }
-            else if (pixels[i].y < 0)
-            {
-                pixels[i].y = HEIGHT;
-            }
-            else
-            {
-                pixels[i].y += pixels[i].dy;
-            }
+            circle.current_radius += circle.growth_speed;
         }
 
-        clear(0xFFFFFF); // set background
+        // check if circle is growing and touched an edge.
+        if (circle.growth_speed > 0.0f)
+        {
+            if (circle.center_x + circle.current_radius >= WIDTH ||
+                circle.center_x - circle.current_radius <= 0 ||
+                circle.center_y + circle.current_radius >= HEIGHT ||
+                circle.center_y - circle.current_radius <= 0)
+                {
+                    circle.growth_speed *= -1.0f;     
+                }
+        }
 
+        if (circle.current_radius <= 0.0f && circle.growth_speed < 0.0f)
+        {
+            circle.current_radius = 0.0f;
+            circle.growth_speed *= -1.0f;
+        }
+
+        clear(0x2A2A2A);
 
         // here can manipulate our frambuffer array
-        //put pixel at mouse click location
-        for (int i = 0; i < pixel_count; i++)
+        //draw the cirlce
+        // if (!circle.is_growing)
+        // {
+        //     circle.growth_speed = 0;
+        // }
+        // else
+        // {
+        //     circle.growth_speed = circle.base_growth_speed;
+        // }
+
+
+        for(int i = 0; i <= 720; i++)
         {
-            put_pixel(
-                pixels[i].x,
-                pixels[i].y,
-                pixels[i].color
-            );
+            float angle = i * (2.0f * 3.14159265f / 720.0f);
+
+            x_boarder = circle.center_x + circle.current_radius * cos(angle);
+            y_boarder = circle.center_y + circle.current_radius * sin(angle);
+
+            put_pixel((int)x_boarder, (int)y_boarder, 0xFF0000);
+
         }
+        
+
 
         // copy the contents of the frambuffer to the texture.
         SDL_UpdateTexture(texture, NULL, framebuffer, WIDTH * sizeof(uint32_t)); // pitch --> width of the image/texture in bytes.
 
-        // clear the renderer current target
-        SDL_RenderClear(renderer);
-
-        // render the frambuffer
-        SDL_RenderTexture(renderer, texture, NULL, NULL);
-
-        // render pixel count on top
-        draw_pixel_count(renderer, pixel_count);
-
-        //display frame
-        SDL_RenderPresent(renderer);
+        
+        SDL_RenderClear(renderer); // clear the renderer current target
+        SDL_RenderTexture(renderer, texture, NULL, NULL); // render the frambuffer
+        // draw_pixel_count(renderer, pixel_count); // render pixel count on top
+        SDL_RenderPresent(renderer); //display frame
 
 
         frame++;
@@ -233,8 +234,6 @@ int main(void)
         {
             next_frame = now;
         }
-
-
     }
 
     SDL_DestroyTexture(texture);
