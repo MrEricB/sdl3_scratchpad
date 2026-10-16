@@ -10,8 +10,30 @@
 #define HEIGHT 400
 
 #define MAX_PIXELS 1500
+#define MAX_CIRCLES 100
 
 uint32_t framebuffer[WIDTH * HEIGHT];
+
+
+void draw_instructions(SDL_Renderer *renderer)
+{
+    // Draw a dark background behind the instructions
+    SDL_FRect header = {
+        0.0f, 0.0f, (float)WIDTH, 60.0f
+    };
+
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+    SDL_RenderFillRect(renderer, &header);
+
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+
+    SDL_RenderDebugText(renderer, 10, 8, "Right click: Place growing circle | Left click: Reverse circles");
+
+    SDL_RenderDebugText(renderer, 10, 24, "Space: Toggle growing/paused | D: Delete random circle");
+
+    SDL_RenderDebugText(renderer, 10, 40, "C: Clear all circles");
+}
+
 
 void put_pixel(int x, int y, uint32_t color)
 {
@@ -73,6 +95,60 @@ typedef struct
 
 } Circle;
 
+int circle_count = 0;
+
+Circle circles[MAX_CIRCLES] = {0};
+
+bool add_circle(int x, int y)
+{
+    if (circle_count >= MAX_CIRCLES)
+    {
+        return false;
+    }
+    // insert circle at end of array
+    circles[circle_count].center_x = x;
+    circles[circle_count].center_y = y;
+    circles[circle_count].growth_speed = ((rand() % 13) * .25) + 0.5; // random number between 0.5 and 3.5
+    circles[circle_count].base_growth_speed = circles[circle_count].growth_speed;
+    circles[circle_count].current_radius = 0;
+    circles[circle_count].is_growing = true;
+
+    circle_count++;
+
+    return true;
+}
+
+bool remove_circle_at_index(int index)
+{
+    if (index < 0 || index >= circle_count)
+    {
+        return false;
+    }
+
+    // Shift remaining circles left
+    for (int i = index; i < circle_count - 1; i++)
+    {
+        circles[i] = circles[i + 1];
+    }
+
+    circle_count--;
+
+    circles[circle_count] = (Circle){0};
+
+    return true;
+}
+
+bool clear_all_circles(void)
+{
+    if (circle_count == 0)
+    {
+        return false;
+    }
+
+    circle_count = 0;
+
+    return true;
+}
 
 int main(void)
 {
@@ -81,8 +157,6 @@ int main(void)
     SDL_Texture *texture;
     SDL_Event event;
     
-    int pixel_count = 0;
-
     srand((unsigned int)time(NULL));
 
     if(!SDL_Init(SDL_INIT_VIDEO))
@@ -112,7 +186,7 @@ int main(void)
         SDL_Quit();
         return EXIT_FAILURE;
     }
-    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+    
 
     uint8_t is_running = 1;
     uint32_t frame = 0;
@@ -120,14 +194,9 @@ int main(void)
     const Uint64 FRAME_TIME = 1000000000ULL / 60;
     Uint64 next_frame = SDL_GetTicksNS();
 
-
-    Circle circle;
-    circle.growth_speed = 0.0f;
-    circle.current_radius = 0;
-    circle.is_growing = true;
-   
     float x_boarder;
     float y_boarder;
+
 
     while (is_running)
     {
@@ -142,73 +211,85 @@ int main(void)
 
             if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT)
             {
-                circle.center_x = (int) event.button.x; // 4;
-                circle.center_y = (int) event.button.y; // 4;
-
-                circle.current_radius = 0;
-                circle.growth_speed = 1.5f;
-                circle.base_growth_speed = circle.growth_speed;
+                add_circle((int) event.button.x, (int) event.button.y);
             }
 
             if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_RIGHT)
             {
-                circle.growth_speed *= -1.0f;
-            }
-
-            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE)
-            {
-                circle.is_growing = !circle.is_growing;
-            }
-
-        }
-
-        // get new radious
-        if (circle.is_growing)
-        {
-            circle.current_radius += circle.growth_speed;
-        }
-
-        // check if circle is growing and touched an edge.
-        if (circle.growth_speed > 0.0f)
-        {
-            if (circle.center_x + circle.current_radius >= WIDTH ||
-                circle.center_x - circle.current_radius <= 0 ||
-                circle.center_y + circle.current_radius >= HEIGHT ||
-                circle.center_y - circle.current_radius <= 0)
+                // reverse all circle (for now)
+                for (int i = 0; i <= circle_count - 1; i++)
                 {
-                    circle.growth_speed *= -1.0f;     
+                    circles[i].growth_speed *= -1.0f;
                 }
+            }
+
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE && !event.key.repeat)
+            {
+                //puase all circle (for now)
+                for (int i = 0; i <= circle_count - 1; i++)
+                {
+                    circles[i].is_growing = !circles[i].is_growing;   
+                }
+            }
+
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_D && !event.key.repeat)
+            {
+                // generate random index and remove that circle
+                int remove_index = (rand() % circle_count);
+                remove_circle_at_index(remove_index);
+            }
+
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_C && !event.key.repeat)
+            {
+                clear_all_circles();
+            }
         }
 
-        if (circle.current_radius <= 0.0f && circle.growth_speed < 0.0f)
+
+        for (int i = 0; i <= circle_count - 1; i++)
         {
-            circle.current_radius = 0.0f;
-            circle.growth_speed *= -1.0f;
+            // get new radious
+            if (circles[i].is_growing)
+            {
+                circles[i].current_radius += circles[i].growth_speed;
+            }
+
+            // check if circle is growing and touched an edge.
+            if (circles[i].growth_speed > 0.0f)
+            {
+                if (circles[i].center_x + circles[i].current_radius >= WIDTH ||
+                    circles[i].center_x - circles[i].current_radius <= 0 ||
+                    circles[i].center_y + circles[i].current_radius >= HEIGHT ||
+                    circles[i].center_y - circles[i].current_radius <= 0)
+                    {
+                        circles[i].growth_speed *= -1.0f;     
+                    }
+            }
+    
+            if (circles[i].current_radius <= 0.0f && circles[i].growth_speed < 0.0f)
+            {
+                circles[i].current_radius = 0.0f;
+                circles[i].growth_speed *= -1.0f;
+            }
         }
+
 
         clear(0x2A2A2A);
 
         // here can manipulate our frambuffer array
-        //draw the cirlce
-        // if (!circle.is_growing)
-        // {
-        //     circle.growth_speed = 0;
-        // }
-        // else
-        // {
-        //     circle.growth_speed = circle.base_growth_speed;
-        // }
-
-
-        for(int i = 0; i <= 720; i++)
+        //draw the cirlces
+        for (int i = 0; i <= circle_count - 1; i++)
         {
-            float angle = i * (2.0f * 3.14159265f / 720.0f);
-
-            x_boarder = circle.center_x + circle.current_radius * cos(angle);
-            y_boarder = circle.center_y + circle.current_radius * sin(angle);
-
-            put_pixel((int)x_boarder, (int)y_boarder, 0xFF0000);
-
+            for(int j = 0; j < 720; j++)
+            {
+                float angle = j * (2.0f * 3.14159265f / 720.0f);
+    
+                x_boarder = circles[i].center_x + circles[i].current_radius * cos(angle);
+                y_boarder = circles[i].center_y + circles[i].current_radius * sin(angle);
+    
+                put_pixel((int)x_boarder, (int)y_boarder, 0xFF0000);
+    
+            }
         }
         
 
@@ -218,8 +299,8 @@ int main(void)
 
         
         SDL_RenderClear(renderer); // clear the renderer current target
-        SDL_RenderTexture(renderer, texture, NULL, NULL); // render the frambuffer
-        // draw_pixel_count(renderer, pixel_count); // render pixel count on top
+        SDL_RenderTexture(renderer, texture, NULL, NULL); // render the frambuffer (i.e. draw the circles)
+        // draw_instructions(renderer);
         SDL_RenderPresent(renderer); //display frame
 
 
